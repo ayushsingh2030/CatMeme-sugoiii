@@ -4,12 +4,77 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>CatMeme-sugoiii</title>
+  <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
-  <main>
-    <h1>CatMeme-sugoiii</h1>
-    <p>Real-time meme pose and action matcher.</p>
-    <p>Server connection is ready.</p>
+  <main class="app-shell">
+    <header class="app-header">
+      <div>
+        <p class="eyebrow">REAL-TIME REACTION MATCHER</p>
+        <h1>CatMeme-sugoiii</h1>
+      </div>
+      <span class="status-pill">Camera off</span>
+    </header>
+
+    <section class="matcher-grid">
+      <article class="panel live-panel">
+        <div class="panel-heading">
+          <h2>Live webcam</h2>
+          <span>Landmarks ready</span>
+        </div>
+
+        <div class="media-placeholder">
+          <p>Camera preview will appear here</p>
+        </div>
+      </article>
+
+      <article class="panel meme-panel">
+        <div class="panel-heading">
+          <h2>Current meme</h2>
+          <span id="matchLabel">Waiting for a match</span>
+        </div>
+
+        <div class="media-placeholder meme-placeholder">
+          <p>Upload memes to start matching</p>
+        </div>
+      </article>
+    </section>
+
+    <section class="panel library-panel">
+      <div class="panel-heading">
+        <h2>Your meme library</h2>
+        <span id="memeCount">0 uploaded</span>
+      </div>
+
+      <div class="meme-strip" id="memeStrip">
+        <p class="empty-library">Your uploaded memes will appear here.</p>
+      </div>
+    </section>
+
+    <footer class="control-bar">
+      <div class="match-summary">
+        <span>Current match</span>
+        <strong id="currentMatch">No match yet</strong>
+        <span id="confidence">Confidence: —</span>
+      </div>
+
+      <div class="controls">
+        <label class="button button-secondary" for="memeUpload">
+          Upload memes
+        </label>
+        <input id="memeUpload" type="file" accept="image/*" multiple hidden>
+
+        <button class="button button-primary" id="startCameraButton" type="button">
+          Start camera
+        </button>
+
+        <button class="button button-danger" id="stopCameraButton" type="button" disabled>
+          Stop
+        </button>
+      </div>
+    </footer>
   </main>
+
+  <script src="/static/script.js"></script>
 </body>
 </html>
