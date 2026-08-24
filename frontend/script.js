@@ -2,6 +2,7 @@ import {
   FaceLandmarker,
   FilesetResolver,
   HandLandmarker,
+  PoseLandmarker,
 } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/vision_bundle.mjs";
 
 const webcam = document.querySelector("#webcam");
@@ -31,16 +32,26 @@ const HAND_CONNECTIONS = [
   [0, 17],
 ];
 
+const POSE_CONNECTIONS = [
+  [11, 12], // shoulders
+  [11, 13], [13, 15], // left arm
+  [12, 14], [14, 16], // right arm
+  [11, 23], [12, 24], // torso sides
+  [23, 24], // hips
+];
+
 const uploadedMemes = [];
 
 let mediaStream = null;
 let visionFileset = null;
 let handLandmarker = null;
 let faceLandmarker = null;
+let poseLandmarker = null;
 let selectedMeme = null;
 let animationFrameId = null;
 let previousVideoTime = -1;
 let latestFaceBlendshapes = [];
+let latestPoseLandmarks = [];
 
 async function getVisionFileset() {
   if (!visionFileset) {
@@ -97,6 +108,28 @@ async function createFaceLandmarker() {
   return faceLandmarker;
 }
 
+async function createPoseLandmarker() {
+  if (poseLandmarker) {
+    return poseLandmarker;
+  }
+
+  const vision = await getVisionFileset();
+
+  poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
+    baseOptions: {
+      modelAssetPath:
+        "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task",
+    },
+    runningMode: "VIDEO",
+    numPoses: 1,
+    minPoseDetectionConfidence: 0.55,
+    minPosePresenceConfidence: 0.55,
+    minTrackingConfidence: 0.55,
+  });
+
+  return poseLandmarker;
+}
+
 async function startCamera() {
   if (!navigator.mediaDevices?.getUserMedia) {
     cameraMessage.textContent = "Your browser does not support webcam access.";
@@ -125,6 +158,7 @@ async function startCamera() {
     const trackerResults = await Promise.allSettled([
       createHandLandmarker(),
       createFaceLandmarker(),
+      createPoseLandmarker(),
     ]);
 
     const activeTrackers = trackerResults.filter(
@@ -135,7 +169,7 @@ async function startCamera() {
       throw new Error("No landmark tracker could be loaded.");
     }
 
-    statusPill.textContent = "Camera on • face + hands tracking";
+    statusPill.textContent = "Camera on • face + hands + pose tracking";
     startLandmarkLoop();
   } catch (error) {
     console.error("Camera or tracker error:", error);
@@ -161,6 +195,7 @@ function stopCamera() {
   webcam.srcObject = null;
   previousVideoTime = -1;
   latestFaceBlendshapes = [];
+  latestPoseLandmarks = [];
 
   landmarkContext.clearRect(
     0,
@@ -196,8 +231,13 @@ function startLandmarkLoop() {
       ? faceLandmarker.detectForVideo(webcam, timestamp)
       : { faceLandmarks: [], faceBlendshapes: [] };
 
+    const poseResult = poseLandmarker
+      ? poseLandmarker.detectForVideo(webcam, timestamp)
+      : { landmarks: [] };
+
     latestFaceBlendshapes =
       faceResult.faceBlendshapes?.[0]?.categories ?? [];
+    latestPoseLandmarks = poseResult.landmarks ?? [];
 
     drawLandmarks(handResult.landmarks, faceResult.faceLandmarks);
   }
@@ -312,7 +352,13 @@ function drawHandLandmarks(hands, size) {
   });
 }
 
- function drawLandmarks(hands, faces) {
+function drawPoseLandmarks(poses, size) {
+  poses.forEach((pose) => {
+    drawConnections(pose, POSE_CONNECTIONS, "#ff9f5c", 2, size);
+  });
+}
+
+function drawLandmarks(hands, faces) {
   const size = resizeLandmarkCanvas();
 
   landmarkContext.clearRect(0, 0, size.width, size.height);
