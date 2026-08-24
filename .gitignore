@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Secrets
+.env
+.env.*
+
+# User-created / large local data
+data/memes/*
+!data/memes/.gitkeep
+data/training_samples/*
+!data/training_samples/.gitkeep
+data/models/*
+!data/models/.gitkeep
+
+# Editor and operating-system files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
