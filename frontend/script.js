@@ -5,6 +5,8 @@ import {
   PoseLandmarker,
 } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/vision_bundle.mjs";
 
+import { extractFeatures } from "./features.js";
+
 const webcam = document.querySelector("#webcam");
 const landmarkCanvas = document.querySelector("#landmarkCanvas");
 const landmarkContext = landmarkCanvas.getContext("2d");
@@ -53,6 +55,10 @@ let animationFrameId = null;
 let previousVideoTime = -1;
 let latestFaceBlendshapes = [];
 let latestPoseLandmarks = [];
+let latestHandLandmarks = [];
+let latestFaceLandmarks = [];
+let latestFeatures = null;
+let lastFeatureLogTime = 0;
 
 async function getVisionFileset() {
   if (!visionFileset) {
@@ -156,34 +162,33 @@ async function startCamera() {
     stopCameraButton.disabled = false;
     statusPill.textContent = "Loading landmark trackers...";
 
-   const trackerNames = ["hand", "face", "pose"];
-const trackerResults = await Promise.allSettled([
-  createHandLandmarker(),
-  createFaceLandmarker(),
-  createPoseLandmarker(),
-]);
+    const trackerNames = ["hand", "face", "pose"];
+    const trackerResults = await Promise.allSettled([
+      createHandLandmarker(),
+      createFaceLandmarker(),
+      createPoseLandmarker(),
+    ]);
 
-const failedTrackers = trackerResults
-  .map((result, index) => (result.status === "rejected" ? trackerNames[index] : null))
-  .filter(Boolean);
+    const failedTrackers = trackerResults
+      .map((result, index) => (result.status === "rejected" ? trackerNames[index] : null))
+      .filter(Boolean);
 
-const activeTrackers = trackerResults.length - failedTrackers.length;
+    const activeTrackers = trackerResults.length - failedTrackers.length;
 
-if (activeTrackers === 0) {
-  throw new Error("No landmark tracker could be loaded.");
-}
+    if (activeTrackers === 0) {
+      throw new Error("No landmark tracker could be loaded.");
+    }
 
-if (failedTrackers.length > 0) {
-  trackerStatus.textContent = `Partial: ${failedTrackers.join(", ")} unavailable`;
-  trackerStatus.style.color = "#ffb84c";
-} else {
-  trackerStatus.textContent = "All trackers ready";
-  trackerStatus.style.color = "";
-}
+    if (failedTrackers.length > 0) {
+      trackerStatus.textContent = `Partial: ${failedTrackers.join(", ")} unavailable`;
+      trackerStatus.style.color = "#ffb84c";
+    } else {
+      trackerStatus.textContent = "All trackers ready";
+      trackerStatus.style.color = "";
+    }
 
-statusPill.textContent = "Camera on • face + hands + pose tracking";
-startLandmarkLoop();
-
+    statusPill.textContent = "Camera on • face + hands + pose tracking";
+    startLandmarkLoop();
   } catch (error) {
     console.error("Camera or tracker error:", error);
     cameraMessage.textContent =
@@ -209,6 +214,9 @@ function stopCamera() {
   previousVideoTime = -1;
   latestFaceBlendshapes = [];
   latestPoseLandmarks = [];
+  latestHandLandmarks = [];
+  latestFaceLandmarks = [];
+  latestFeatures = null;
 
   landmarkContext.clearRect(
     0,
@@ -218,10 +226,10 @@ function stopCamera() {
   );
 
   cameraPlaceholder.classList.remove("camera-active");
-cameraMessage.textContent = "Camera preview will appear here";
-statusPill.textContent = "Camera off";
-trackerStatus.textContent = "Landmarks ready";
-trackerStatus.style.color = "";
+  cameraMessage.textContent = "Camera preview will appear here";
+  statusPill.textContent = "Camera off";
+  trackerStatus.textContent = "Landmarks ready";
+  trackerStatus.style.color = "";
   startCameraButton.disabled = false;
   stopCameraButton.disabled = true;
 }
@@ -250,11 +258,25 @@ function startLandmarkLoop() {
       ? poseLandmarker.detectForVideo(webcam, timestamp)
       : { landmarks: [] };
 
-    latestFaceBlendshapes =
-      faceResult.faceBlendshapes?.[0]?.categories ?? [];
-    latestPoseLandmarks = poseResult.landmarks ?? [];
+    latestHandLandmarks = handResult.landmarks ?? [];
+    latestFaceLandmarks = faceResult.faceLandmarks ?? [];
+    latestFaceBlendshapes = faceResult.faceBlendshapes?.[0]?.categories ?? [];
+    latestPoseLandmarks = poseResult.landmarks?.[0] ?? [];
 
-    drawLandmarks(handResult.landmarks, faceResult.faceLandmarks);
+    latestFeatures = extractFeatures(
+      latestHandLandmarks,
+      latestFaceLandmarks[0],
+      latestFaceBlendshapes,
+      latestPoseLandmarks
+    );
+
+    // Throttled console logging so devtools stays readable (~2x per second).
+    if (timestamp - lastFeatureLogTime > 500) {
+      lastFeatureLogTime = timestamp;
+      console.log("Live feature profile:", latestFeatures);
+    }
+
+    drawLandmarks(latestHandLandmarks, latestFaceLandmarks);
   }
 
   animationFrameId = requestAnimationFrame(startLandmarkLoop);
