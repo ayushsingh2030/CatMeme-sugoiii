@@ -1,0 +1,250 @@
+:root {
+  color-scheme: dark;
+  --background: #0b1020;
+  --surface: rgba(21, 29, 52, 0.84);
+  --surface-light: rgba(34, 45, 77, 0.9);
+  --border: rgba(255, 255, 255, 0.11);
+  --text: #f6f7fb;
+  --muted: #aeb7ce;
+  --pink: #ff5ca8;
+  --purple: #8c6bff;
+  --blue: #57c7ff;
+  --danger: #ff6b6b;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+  color: var(--text);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", sans-serif;
+  background:
+    radial-gradient(circle at 10% 0%, rgba(140, 107, 255, 0.3), transparent 32rem),
+    radial-gradient(circle at 90% 15%, rgba(255, 92, 168, 0.25), transparent 28rem),
+    var(--background);
+}
+
+button,
+label {
+  font: inherit;
+}
+
+.app-shell {
+  width: min(1440px, 100%);
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: 28px;
+}
+
+.app-header,
+.panel-heading,
+.control-bar,
+.controls,
+.match-summary {
+  display: flex;
+  align-items: center;
+}
+
+.app-header,
+.panel-heading,
+.control-bar {
+  justify-content: space-between;
+}
+
+.app-header {
+  margin-bottom: 24px;
+}
+
+.eyebrow {
+  margin: 0 0 5px;
+  color: var(--blue);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
+h1,
+h2,
+p {
+  margin-top: 0;
+}
+
+h1 {
+  margin-bottom: 0;
+  font-size: clamp(1.75rem, 4vw, 2.6rem);
+  letter-spacing: -0.05em;
+}
+
+h2 {
+  margin-bottom: 0;
+  font-size: 1rem;
+}
+
+.status-pill,
+.panel-heading span,
+.match-summary span {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.status-pill {
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.matcher-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.panel {
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: var(--surface);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+}
+
+.live-panel,
+.meme-panel {
+  overflow: hidden;
+}
+
+.panel-heading {
+  min-height: 62px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.media-placeholder {
+  display: grid;
+  min-height: 390px;
+  place-items: center;
+  padding: 24px;
+  color: var(--muted);
+  text-align: center;
+  background:
+    linear-gradient(135deg, rgba(87, 199, 255, 0.08), transparent),
+    rgba(5, 9, 21, 0.72);
+}
+
+.meme-placeholder {
+  background:
+    linear-gradient(135deg, rgba(255, 92, 168, 0.16), rgba(140, 107, 255, 0.12)),
+    rgba(5, 9, 21, 0.72);
+}
+
+.library-panel {
+  margin-top: 20px;
+}
+
+.meme-strip {
+  display: flex;
+  min-height: 115px;
+  gap: 12px;
+  align-items: center;
+  overflow-x: auto;
+  padding: 16px 20px;
+}
+
+.empty-library {
+  margin: 0;
+  color: var(--muted);
+}
+
+.control-bar {
+  gap: 20px;
+  margin-top: 20px;
+  padding: 16px 20px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--surface-light);
+}
+
+.match-summary {
+  flex: 1;
+  flex-wrap: wrap;
+  gap: 7px 12px;
+}
+
+.match-summary strong {
+  color: var(--text);
+}
+
+.controls {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.button {
+  display: inline-flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 15px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  cursor: pointer;
+  font-weight: 750;
+  transition: transform 150ms ease, opacity 150ms ease, background 150ms ease;
+}
+
+.button:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.button-primary {
+  color: #101222;
+  background: linear-gradient(135deg, var(--blue), #9be3ff);
+}
+
+.button-secondary {
+  border-color: var(--border);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.button-danger {
+  color: white;
+  background: rgba(255, 107, 107, 0.2);
+  border-color: rgba(255, 107, 107, 0.3);
+}
+
+@media (max-width: 800px) {
+  .app-shell {
+    padding: 16px;
+  }
+
+  .matcher-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .media-placeholder {
+    min-height: 270px;
+  }
+
+  .control-bar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .controls {
+    justify-content: stretch;
+  }
+
+  .button {
+    flex: 1;
+  }
+}
