@@ -1,4 +1,5 @@
 import {
+  FaceLandmarker,
   FilesetResolver,
   HandLandmarker,
 } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/vision_bundle.mjs";
@@ -33,19 +34,30 @@ const HAND_CONNECTIONS = [
 const uploadedMemes = [];
 
 let mediaStream = null;
+let visionFileset = null;
 let handLandmarker = null;
+let faceLandmarker = null;
 let selectedMeme = null;
 let animationFrameId = null;
 let previousVideoTime = -1;
+let latestFaceBlendshapes = [];
+
+async function getVisionFileset() {
+  if (!visionFileset) {
+    visionFileset = await FilesetResolver.forVisionTasks(
+      "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/wasm"
+    );
+  }
+
+  return visionFileset;
+}
 
 async function createHandLandmarker() {
   if (handLandmarker) {
     return handLandmarker;
   }
 
-  const vision = await FilesetResolver.forVisionTasks(
-    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/wasm"
-  );
+  const vision = await getVisionFileset();
 
   handLandmarker = await HandLandmarker.createFromOptions(vision, {
     baseOptions: {
@@ -60,6 +72,29 @@ async function createHandLandmarker() {
   });
 
   return handLandmarker;
+}
+
+async function createFaceLandmarker() {
+  if (faceLandmarker) {
+    return faceLandmarker;
+  }
+
+  const vision = await getVisionFileset();
+
+  faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
+    baseOptions: {
+      modelAssetPath:
+        "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task",
+    },
+    runningMode: "VIDEO",
+    numFaces: 1,
+    minFaceDetectionConfidence: 0.55,
+    minFacePresenceConfidence: 0.55,
+    minTrackingConfidence: 0.55,
+    outputFaceBlendshapes: true,
+  });
+
+  return faceLandmarker;
 }
 
 async function startCamera() {
@@ -85,21 +120,30 @@ async function startCamera() {
     cameraPlaceholder.classList.add("camera-active");
     startCameraButton.disabled = true;
     stopCameraButton.disabled = false;
-    statusPill.textContent = "Loading hand tracker...";
+    statusPill.textContent = "Loading landmark trackers...";
 
-    try {
-      await createHandLandmarker();
-      statusPill.textContent = "Camera on • hands tracking";
-      startLandmarkLoop();
-    } catch (error) {
-      console.error("Hand tracker error:", error);
-      statusPill.textContent = "Camera on • tracker unavailable";
+    const trackerResults = await Promise.allSettled([
+      createHandLandmarker(),
+      createFaceLandmarker(),
+    ]);
+
+    const activeTrackers = trackerResults.filter(
+      (result) => result.status === "fulfilled"
+    ).length;
+
+    if (activeTrackers === 0) {
+      throw new Error("No landmark tracker could be loaded.");
     }
+
+    statusPill.textContent = "Camera on • face + hands tracking";
+    startLandmarkLoop();
   } catch (error) {
-    console.error("Camera error:", error);
+    console.error("Camera or tracker error:", error);
     cameraMessage.textContent =
-      "Camera access was unavailable. Check browser permission and try again.";
-    statusPill.textContent = "Camera unavailable";
+      "Camera started, but a tracker could not load. Check the browser console.";
+    statusPill.textContent = "Tracker unavailable";
+    startCameraButton.disabled = false;
+    stopCameraButton.disabled = true;
   }
 }
 
@@ -116,6 +160,7 @@ function stopCamera() {
   mediaStream = null;
   webcam.srcObject = null;
   previousVideoTime = -1;
+  latestFaceBlendshapes = [];
 
   landmarkContext.clearRect(
     0,
@@ -132,21 +177,29 @@ function stopCamera() {
 }
 
 function startLandmarkLoop() {
-  if (!handLandmarker || !mediaStream) {
+  if (!mediaStream) {
     return;
   }
 
-  if (webcam.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
-    if (webcam.currentTime !== previousVideoTime) {
-      previousVideoTime = webcam.currentTime;
+  if (
+    webcam.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
+    webcam.currentTime !== previousVideoTime
+  ) {
+    previousVideoTime = webcam.currentTime;
+    const timestamp = performance.now();
 
-      const result = handLandmarker.detectForVideo(
-        webcam,
-        performance.now()
-      );
+    const handResult = handLandmarker
+      ? handLandmarker.detectForVideo(webcam, timestamp)
+      : { landmarks: [] };
 
-      drawHandLandmarks(result.landmarks);
-    }
+    const faceResult = faceLandmarker
+      ? faceLandmarker.detectForVideo(webcam, timestamp)
+      : { faceLandmarks: [], faceBlendshapes: [] };
+
+    latestFaceBlendshapes =
+      faceResult.faceBlendshapes?.[0]?.categories ?? [];
+
+    drawLandmarks(handResult.landmarks, faceResult.faceLandmarks);
   }
 
   animationFrameId = requestAnimationFrame(startLandmarkLoop);
@@ -155,10 +208,10 @@ function startLandmarkLoop() {
 function resizeLandmarkCanvas() {
   const width = landmarkCanvas.clientWidth;
   const height = landmarkCanvas.clientHeight;
-  const devicePixelRatio = window.devicePixelRatio || 1;
+  const pixelRatio = window.devicePixelRatio || 1;
 
-  const targetWidth = Math.round(width * devicePixelRatio);
-  const targetHeight = Math.round(height * devicePixelRatio);
+  const targetWidth = Math.round(width * pixelRatio);
+  const targetHeight = Math.round(height * pixelRatio);
 
   if (
     landmarkCanvas.width !== targetWidth ||
@@ -168,14 +221,7 @@ function resizeLandmarkCanvas() {
     landmarkCanvas.height = targetHeight;
   }
 
-  landmarkContext.setTransform(
-    devicePixelRatio,
-    0,
-    0,
-    devicePixelRatio,
-    0,
-    0
-  );
+  landmarkContext.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
 
   return { width, height };
 }
@@ -198,37 +244,79 @@ function landmarkToCanvasPoint(landmark, canvasWidth, canvasHeight) {
   };
 }
 
-function drawHandLandmarks(hands) {
-  const { width, height } = resizeLandmarkCanvas();
+function drawConnections(landmarks, connections, color, width, size) {
+  landmarkContext.strokeStyle = color;
+  landmarkContext.lineWidth = width;
+  landmarkContext.lineCap = "round";
+  landmarkContext.lineJoin = "round";
 
-  landmarkContext.clearRect(0, 0, width, height);
+  connections.forEach((connection) => {
+    const startIndex = connection.start ?? connection[0];
+    const endIndex = connection.end ?? connection[1];
 
-  hands.forEach((hand) => {
-    landmarkContext.strokeStyle = "#baff45";
-    landmarkContext.lineWidth = 3;
-    landmarkContext.lineCap = "round";
-    landmarkContext.lineJoin = "round";
+    const start = landmarkToCanvasPoint(
+      landmarks[startIndex],
+      size.width,
+      size.height
+    );
 
-    HAND_CONNECTIONS.forEach(([startIndex, endIndex]) => {
-      const start = landmarkToCanvasPoint(hand[startIndex], width, height);
-      const end = landmarkToCanvasPoint(hand[endIndex], width, height);
+    const end = landmarkToCanvasPoint(
+      landmarks[endIndex],
+      size.width,
+      size.height
+    );
 
-      landmarkContext.beginPath();
-      landmarkContext.moveTo(start.x, start.y);
-      landmarkContext.lineTo(end.x, end.y);
-      landmarkContext.stroke();
+    landmarkContext.beginPath();
+    landmarkContext.moveTo(start.x, start.y);
+    landmarkContext.lineTo(end.x, end.y);
+    landmarkContext.stroke();
+  });
+}
+
+function drawFaceLandmarks(faces, size) {
+  const faceGroups = [
+    FaceLandmarker.FACE_LANDMARKS_FACE_OVAL,
+    FaceLandmarker.FACE_LANDMARKS_LEFT_EYE,
+    FaceLandmarker.FACE_LANDMARKS_RIGHT_EYE,
+    FaceLandmarker.FACE_LANDMARKS_LEFT_EYEBROW,
+    FaceLandmarker.FACE_LANDMARKS_RIGHT_EYEBROW,
+    FaceLandmarker.FACE_LANDMARKS_LEFT_IRIS,
+    FaceLandmarker.FACE_LANDMARKS_RIGHT_IRIS,
+    FaceLandmarker.FACE_LANDMARKS_LIPS,
+  ];
+
+  faces.forEach((face) => {
+    faceGroups.forEach((connections) => {
+      drawConnections(face, connections, "#5ef0e2", 1.5, size);
     });
+  });
+}
+
+function drawHandLandmarks(hands, size) {
+  hands.forEach((hand) => {
+    drawConnections(hand, HAND_CONNECTIONS, "#baff45", 3, size);
 
     landmarkContext.fillStyle = "#ffe66d";
 
     hand.forEach((landmark) => {
-      const point = landmarkToCanvasPoint(landmark, width, height);
+      const point = landmarkToCanvasPoint(
+        landmark,
+        size.width,
+        size.height
+      );
 
       landmarkContext.beginPath();
       landmarkContext.arc(point.x, point.y, 4, 0, Math.PI * 2);
       landmarkContext.fill();
     });
   });
+}
+
+ function drawLandmarks(hands, faces) {
+  const size = resizeLandmarkCanvas();
+
+  landmarkContext.clearRect(0, 0, size.width, size.height);
+  drawHandLandmarks(hands, size);
 }
 
 function memeNameFromFile(file) {
