@@ -14,6 +14,7 @@ const cameraMessage = document.querySelector("#cameraMessage");
 const startCameraButton = document.querySelector("#startCameraButton");
 const stopCameraButton = document.querySelector("#stopCameraButton");
 const statusPill = document.querySelector(".status-pill");
+const trackerStatus = document.querySelector("#trackerStatus");
 
 const memeUpload = document.querySelector("#memeUpload");
 const memeStrip = document.querySelector("#memeStrip");
@@ -155,22 +156,34 @@ async function startCamera() {
     stopCameraButton.disabled = false;
     statusPill.textContent = "Loading landmark trackers...";
 
-    const trackerResults = await Promise.allSettled([
-      createHandLandmarker(),
-      createFaceLandmarker(),
-      createPoseLandmarker(),
-    ]);
+   const trackerNames = ["hand", "face", "pose"];
+const trackerResults = await Promise.allSettled([
+  createHandLandmarker(),
+  createFaceLandmarker(),
+  createPoseLandmarker(),
+]);
 
-    const activeTrackers = trackerResults.filter(
-      (result) => result.status === "fulfilled"
-    ).length;
+const failedTrackers = trackerResults
+  .map((result, index) => (result.status === "rejected" ? trackerNames[index] : null))
+  .filter(Boolean);
 
-    if (activeTrackers === 0) {
-      throw new Error("No landmark tracker could be loaded.");
-    }
+const activeTrackers = trackerResults.length - failedTrackers.length;
 
-    statusPill.textContent = "Camera on • face + hands + pose tracking";
-    startLandmarkLoop();
+if (activeTrackers === 0) {
+  throw new Error("No landmark tracker could be loaded.");
+}
+
+if (failedTrackers.length > 0) {
+  trackerStatus.textContent = `Partial: ${failedTrackers.join(", ")} unavailable`;
+  trackerStatus.style.color = "#ffb84c";
+} else {
+  trackerStatus.textContent = "All trackers ready";
+  trackerStatus.style.color = "";
+}
+
+statusPill.textContent = "Camera on • face + hands + pose tracking";
+startLandmarkLoop();
+
   } catch (error) {
     console.error("Camera or tracker error:", error);
     cameraMessage.textContent =
@@ -205,8 +218,10 @@ function stopCamera() {
   );
 
   cameraPlaceholder.classList.remove("camera-active");
-  cameraMessage.textContent = "Camera preview will appear here";
-  statusPill.textContent = "Camera off";
+cameraMessage.textContent = "Camera preview will appear here";
+statusPill.textContent = "Camera off";
+trackerStatus.textContent = "Landmarks ready";
+trackerStatus.style.color = "";
   startCameraButton.disabled = false;
   stopCameraButton.disabled = true;
 }
