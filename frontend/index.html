@@ -21,9 +21,10 @@
     <section class="matcher-grid">
       <article class="panel live-panel">
         <div class="panel-heading">
-  <h2>Live webcam</h2>
-  <span id="trackerStatus">Landmarks ready</span>
-</div>
+          <h2>Live webcam</h2>
+          <span id="trackerStatus">Landmarks ready</span>
+        </div>
+
         <div class="media-placeholder" id="cameraPlaceholder">
           <video
             id="webcam"
@@ -33,6 +34,8 @@
             playsinline
           ></video>
           <canvas id="landmarkCanvas" class="landmark-canvas"></canvas>
+
+          <div id="calibrationOverlay" class="calibration-overlay"></div>
 
           <p class="placeholder-message" id="cameraMessage">
             Camera preview will appear here

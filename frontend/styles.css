@@ -10,6 +10,7 @@
   --purple: #8c6bff;
   --blue: #57c7ff;
   --danger: #ff6b6b;
+  --success: #6ee7a0;
 }
 
 * {
@@ -298,30 +299,39 @@ h2 {
 }
 
 .meme-tile {
-  width: 90px;
-  flex: 0 0 90px;
-  padding: 0;
+  display: flex;
+  flex-direction: column;
+  width: 100px;
+  flex: 0 0 100px;
   overflow: hidden;
   border: 2px solid transparent;
   border-radius: 12px;
-  cursor: pointer;
   color: var(--text);
   background: rgba(255, 255, 255, 0.06);
 }
 
-.meme-tile:hover,
 .meme-tile.selected {
   border-color: var(--pink);
 }
 
-.meme-tile img {
+.meme-tile-select {
   display: block;
-  width: 86px;
+  padding: 0;
+  border: none;
+  cursor: pointer;
+  color: inherit;
+  background: none;
+  text-align: left;
+}
+
+.meme-tile-select img {
+  display: block;
+  width: 100%;
   height: 72px;
   object-fit: cover;
 }
 
-.meme-tile span {
+.meme-tile-select span {
   display: block;
   padding: 7px;
   overflow: hidden;
@@ -329,6 +339,37 @@ h2 {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.calibrate-button {
+  margin: 0 6px;
+  padding: 5px 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 0.68rem;
+}
+
+.calibrate-button:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.calibration-badge {
+  margin: 6px 6px 8px;
+  padding: 3px 6px;
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 0.62rem;
+  text-align: center;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.calibration-badge.calibrated {
+  color: var(--success);
+  background: rgba(110, 231, 160, 0.12);
+}
+
 .landmark-canvas {
   display: none;
   position: absolute;
@@ -341,4 +382,24 @@ h2 {
 
 #cameraPlaceholder.camera-active .landmark-canvas {
   display: block;
+}
+
+.calibration-overlay {
+  display: none;
+  position: absolute;
+  inset: 0;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  color: white;
+  font-size: 1.5rem;
+  font-weight: 700;
+  text-align: center;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.8);
+  background: rgba(0, 0, 0, 0.35);
+  z-index: 5;
+}
+
+.calibration-overlay.visible {
+  display: flex;
 }

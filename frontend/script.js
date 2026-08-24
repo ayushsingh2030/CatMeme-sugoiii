@@ -6,6 +6,7 @@ import {
 } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/vision_bundle.mjs";
 
 import { extractFeatures } from "./features.js";
+import { runCalibrationTake, averageValue } from "./calibration.js";
 
 const webcam = document.querySelector("#webcam");
 const landmarkCanvas = document.querySelector("#landmarkCanvas");
@@ -17,6 +18,7 @@ const startCameraButton = document.querySelector("#startCameraButton");
 const stopCameraButton = document.querySelector("#stopCameraButton");
 const statusPill = document.querySelector(".status-pill");
 const trackerStatus = document.querySelector("#trackerStatus");
+const calibrationOverlay = document.querySelector("#calibrationOverlay");
 
 const memeUpload = document.querySelector("#memeUpload");
 const memeStrip = document.querySelector("#memeStrip");
@@ -45,6 +47,12 @@ const POSE_CONNECTIONS = [
 
 const uploadedMemes = [];
 
+// Calibration profiles live in memory only for now. Uploaded memes
+// themselves don't survive a page refresh yet either (Phase C roadmap
+// item 5 covers persisting both together later), so there's nothing to
+// gain from writing to localStorage until meme storage is also durable.
+const calibratedProfiles = {}; // { [memeId]: { sessions: [...], profile: {...} } }
+
 let mediaStream = null;
 let visionFileset = null;
 let handLandmarker = null;
@@ -59,6 +67,7 @@ let latestHandLandmarks = [];
 let latestFaceLandmarks = [];
 let latestFeatures = null;
 let lastFeatureLogTime = 0;
+let isCalibrating = false;
 
 async function getVisionFileset() {
   if (!visionFileset) {
@@ -270,8 +279,7 @@ function startLandmarkLoop() {
       latestPoseLandmarks
     );
 
-    // Throttled console logging so devtools stays readable (~2x per second).
-    if (timestamp - lastFeatureLogTime > 500) {
+    if (timestamp - lastFeatureLogTime > 500 && !isCalibrating) {
       lastFeatureLogTime = timestamp;
       console.log("Live feature profile:", latestFeatures);
     }
@@ -428,12 +436,73 @@ function selectMeme(meme) {
   });
 }
 
+function updateTileCalibrationBadge(meme) {
+  const tile = memeStrip.querySelector(`[data-meme-id="${meme.id}"]`);
+  if (!tile) return;
+
+  const badge = tile.querySelector(".calibration-badge");
+  const takeCount = calibratedProfiles[meme.id]?.sessions.length ?? 0;
+
+  if (badge) {
+    badge.textContent = takeCount > 0 ? `Calibrated ×${takeCount}` : "Not calibrated";
+    badge.classList.toggle("calibrated", takeCount > 0);
+  }
+}
+
+async function calibrateMeme(meme) {
+  if (!mediaStream) {
+    cameraMessage.textContent = "Start the camera before calibrating a meme.";
+    return;
+  }
+
+  if (isCalibrating) {
+    return;
+  }
+
+  isCalibrating = true;
+  selectMeme(meme);
+  calibrationOverlay.classList.add("visible");
+
+  const sessionProfile = await runCalibrationTake({
+    getFeatures: () => latestFeatures,
+    countdownSeconds: 3,
+    captureDurationMs: 1500,
+    onStatusChange: (text) => {
+      if (text) {
+        calibrationOverlay.textContent = text;
+      } else {
+        calibrationOverlay.classList.remove("visible");
+      }
+    },
+  });
+
+  if (!calibratedProfiles[meme.id]) {
+    calibratedProfiles[meme.id] = { sessions: [], profile: null };
+  }
+
+  calibratedProfiles[meme.id].sessions.push(sessionProfile);
+  calibratedProfiles[meme.id].profile = averageValue(
+    calibratedProfiles[meme.id].sessions
+  );
+
+  console.log(
+    `Calibration saved for "${meme.name}" (${calibratedProfiles[meme.id].sessions.length} take(s)):`,
+    calibratedProfiles[meme.id].profile
+  );
+
+  updateTileCalibrationBadge(meme);
+  isCalibrating = false;
+}
+
 function renderMemeTile(meme) {
-  const tile = document.createElement("button");
-  tile.type = "button";
+  const tile = document.createElement("div");
   tile.className = "meme-tile";
   tile.dataset.memeId = meme.id;
-  tile.title = `Select ${meme.name}`;
+
+  const selectButton = document.createElement("button");
+  selectButton.type = "button";
+  selectButton.className = "meme-tile-select";
+  selectButton.title = `Select ${meme.name}`;
 
   const image = document.createElement("img");
   image.src = meme.url;
@@ -442,9 +511,25 @@ function renderMemeTile(meme) {
   const label = document.createElement("span");
   label.textContent = meme.name;
 
-  tile.append(image, label);
-  tile.addEventListener("click", () => selectMeme(meme));
+  selectButton.append(image, label);
+  selectButton.addEventListener("click", () => selectMeme(meme));
+
+  const calibrateButton = document.createElement("button");
+  calibrateButton.type = "button";
+  calibrateButton.className = "calibrate-button";
+  calibrateButton.textContent = "Calibrate";
+  calibrateButton.addEventListener("click", () => calibrateMeme(meme));
+
+  const badge = document.createElement("span");
+  badge.className = "calibration-badge";
+  badge.textContent = "Not calibrated";
+
+  tile.append(selectButton, calibrateButton, badge);
   memeStrip.append(tile);
+
+  document.querySelectorAll(".meme-tile").forEach((t) => {
+    t.classList.toggle("selected", t.dataset.memeId === selectedMeme?.id);
+  });
 }
 
 memeUpload.addEventListener("change", (event) => {
