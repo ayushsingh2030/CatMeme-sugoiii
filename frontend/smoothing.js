@@ -1,0 +1,45 @@
+// smoothing.js
+// Prevents the displayed meme from flickering between candidates on
+// frame-to-frame noise. A candidate must win a consistent streak of
+// consecutive frames before the display actually switches, and the
+// currently displayed meme is retained otherwise (hysteresis).
+
+export function createMatchSmoother({ dwellFramesRequired = 8 } = {}) {
+  let currentDisplayedId = null;
+  let candidateId = null;
+  let candidateStreak = 0;
+
+  // `candidate` is either { memeId, overallScore, ... } for a confident
+  // match this frame, or null if nothing cleared the confidence threshold.
+  function update(candidate) {
+    if (!candidate) {
+      candidateId = null;
+      candidateStreak = 0;
+      return { shouldSwitch: false, displayedId: currentDisplayedId };
+    }
+
+    if (candidate.memeId === candidateId) {
+      candidateStreak += 1;
+    } else {
+      candidateId = candidate.memeId;
+      candidateStreak = 1;
+    }
+
+    const shouldSwitch =
+      candidateId !== currentDisplayedId && candidateStreak >= dwellFramesRequired;
+
+    if (shouldSwitch) {
+      currentDisplayedId = candidateId;
+    }
+
+    return { shouldSwitch, displayedId: currentDisplayedId };
+  }
+
+  function reset() {
+    currentDisplayedId = null;
+    candidateId = null;
+    candidateStreak = 0;
+  }
+
+  return { update, reset };
+}

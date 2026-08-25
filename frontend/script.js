@@ -13,7 +13,8 @@ import {
   saveCalibrationRecord,
   loadAllCalibrationRecords,
 } from "./storage.js";
-import { findBestMatch } from "./matching.js";
+import { findBestMatch, scoreAgainstProfile } from "./matching.js";
+import { createMatchSmoother } from "./smoothing.js";
 
 const webcam = document.querySelector("#webcam");
 const landmarkCanvas = document.querySelector("#landmarkCanvas");
@@ -52,15 +53,19 @@ const POSE_CONNECTIONS = [
   [23, 24], // hips
 ];
 
-// Minimum overall similarity score (0-1) before an auto-match is trusted
-// enough to swap the displayed meme. Tune this later once real usage
-// data shows whether matches feel too eager or too shy.
-const MATCH_CONFIDENCE_THRESHOLD = 0.55;
+// Minimum overall similarity score (0-1) before a match is even considered
+// "confident" enough to count as a candidate for switching the display.
+const MATCH_CONFIDENCE_THRESHOLD = 0.6;
 
 // Brief grace period after a manual tile click before auto-matching is
 // allowed to take the display back over, so browsing the library doesn't
 // get immediately overridden.
 const MANUAL_SELECT_GRACE_MS = 1000;
+
+// Face and pose detection run every Nth frame instead of every frame to
+// keep hand detection (which is drawn on screen every frame) responsive.
+// Hand detection always runs at full speed.
+const HEAVY_DETECTOR_INTERVAL = 2;
 
 const uploadedMemes = [];
 
@@ -70,6 +75,8 @@ const uploadedMemes = [];
 // Recalibrating a meme REPLACES its saved profile entirely.
 const calibratedProfiles = {}; // { [memeId]: profile }
 
+const matchSmoother = createMatchSmoother({ dwellFramesRequired: 8 });
+
 let mediaStream = null;
 let visionFileset = null;
 let handLandmarker = null;
@@ -78,6 +85,7 @@ let poseLandmarker = null;
 let selectedMeme = null;
 let animationFrameId = null;
 let previousVideoTime = -1;
+let frameCounter = 0;
 let latestFaceBlendshapes = [];
 let latestPoseLandmarks = [];
 let latestHandLandmarks = [];
@@ -85,7 +93,6 @@ let latestFaceLandmarks = [];
 let latestFeatures = null;
 let lastFeatureLogTime = 0;
 let isCalibrating = false;
-let currentAutoMatchId = null;
 let lastManualSelectTime = 0;
 
 async function getVisionFileset() {
@@ -240,12 +247,13 @@ function stopCamera() {
   mediaStream = null;
   webcam.srcObject = null;
   previousVideoTime = -1;
+  frameCounter = 0;
   latestFaceBlendshapes = [];
   latestPoseLandmarks = [];
   latestHandLandmarks = [];
   latestFaceLandmarks = [];
   latestFeatures = null;
-  currentAutoMatchId = null;
+  matchSmoother.reset();
 
   landmarkContext.clearRect(
     0,
@@ -273,31 +281,32 @@ function runAutoMatch(timestamp) {
   }
 
   const bestMatch = findBestMatch(latestFeatures, calibratedProfiles);
-  if (!bestMatch) {
-    return;
-  }
+  const candidate =
+    bestMatch && bestMatch.overallScore >= MATCH_CONFIDENCE_THRESHOLD ? bestMatch : null;
 
-  const scorePercent = Math.round(bestMatch.overallScore * 100);
-  const matchedMeme = uploadedMemes.find((m) => m.id === bestMatch.memeId);
-  if (!matchedMeme) {
-    return;
-  }
+  const result = matchSmoother.update(candidate);
 
-  if (bestMatch.overallScore >= MATCH_CONFIDENCE_THRESHOLD) {
-    if (currentAutoMatchId !== matchedMeme.id) {
+  if (result.shouldSwitch) {
+    const matchedMeme = uploadedMemes.find((m) => m.id === result.displayedId);
+    if (matchedMeme) {
+      const scorePercent = Math.round(candidate.overallScore * 100);
       displayMeme(matchedMeme, {
         label: "Live match",
         confidenceText: `Confidence: ${scorePercent}%`,
       });
-      currentAutoMatchId = matchedMeme.id;
-    } else {
-      confidence.textContent = `Confidence: ${scorePercent}%`;
     }
-  } else if (currentAutoMatchId !== null) {
-    matchLabel.textContent = "Live match";
-    currentMatch.textContent = "Uncertain";
-    confidence.textContent = `Confidence: ${scorePercent}% (below threshold)`;
-    currentAutoMatchId = null;
+    return;
+  }
+
+  // No switch this frame — if something is already displayed via auto-match,
+  // keep updating its confidence number so the UI still feels live, without
+  // touching which meme is shown (hysteresis).
+  if (result.displayedId) {
+    const displayedProfile = calibratedProfiles[result.displayedId];
+    if (displayedProfile) {
+      const { overallScore } = scoreAgainstProfile(latestFeatures, displayedProfile);
+      confidence.textContent = `Confidence: ${Math.round(overallScore * 100)}%`;
+    }
   }
 }
 
@@ -312,23 +321,31 @@ function startLandmarkLoop() {
   ) {
     previousVideoTime = webcam.currentTime;
     const timestamp = performance.now();
+    frameCounter += 1;
 
+    // Hand detection runs every frame — it's what's drawn on screen and
+    // needs to feel responsive.
     const handResult = handLandmarker
       ? handLandmarker.detectForVideo(webcam, timestamp)
       : { landmarks: [] };
-
-    const faceResult = faceLandmarker
-      ? faceLandmarker.detectForVideo(webcam, timestamp)
-      : { faceLandmarks: [], faceBlendshapes: [] };
-
-    const poseResult = poseLandmarker
-      ? poseLandmarker.detectForVideo(webcam, timestamp)
-      : { landmarks: [] };
-
     latestHandLandmarks = handResult.landmarks ?? [];
-    latestFaceLandmarks = faceResult.faceLandmarks ?? [];
-    latestFaceBlendshapes = faceResult.faceBlendshapes?.[0]?.categories ?? [];
-    latestPoseLandmarks = poseResult.landmarks?.[0] ?? [];
+
+    // Face and pose are heavier and less visually time-critical, so they
+    // only run every HEAVY_DETECTOR_INTERVAL frames; in between, the
+    // previous frame's results are reused.
+    if (frameCounter % HEAVY_DETECTOR_INTERVAL === 0) {
+      const faceResult = faceLandmarker
+        ? faceLandmarker.detectForVideo(webcam, timestamp)
+        : { faceLandmarks: [], faceBlendshapes: [] };
+
+      const poseResult = poseLandmarker
+        ? poseLandmarker.detectForVideo(webcam, timestamp)
+        : { landmarks: [] };
+
+      latestFaceLandmarks = faceResult.faceLandmarks ?? [];
+      latestFaceBlendshapes = faceResult.faceBlendshapes?.[0]?.categories ?? [];
+      latestPoseLandmarks = poseResult.landmarks?.[0] ?? [];
+    }
 
     latestFeatures = extractFeatures(
       latestHandLandmarks,
@@ -527,6 +544,7 @@ async function calibrateMeme(meme) {
   }
 
   isCalibrating = true;
+  matchSmoother.reset();
   displayMeme(meme, { isManual: true });
   calibrationOverlay.classList.add("visible");
 
@@ -580,7 +598,7 @@ function renderMemeTile(meme) {
   selectButton.addEventListener("click", () => {
     displayMeme(meme, { isManual: true });
     lastManualSelectTime = performance.now();
-    currentAutoMatchId = null;
+    matchSmoother.reset();
   });
 
   const calibrateButton = document.createElement("button");
