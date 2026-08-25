@@ -1,5 +1,6 @@
 :root {
   color-scheme: dark;
+
   --background: #0b1020;
   --surface: rgba(21, 29, 52, 0.84);
   --surface-light: rgba(34, 45, 77, 0.9);
@@ -102,7 +103,7 @@ h2 {
 
 .matcher-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
   gap: 20px;
 }
 
@@ -124,9 +125,11 @@ h2 {
   border-bottom: 1px solid var(--border);
 }
 
+/* Both panels use the same fixed aspect ratio so the camera feed and the
+   meme image always render at identical dimensions, side by side. */
 .media-placeholder {
   display: grid;
-  min-height: 390px;
+  aspect-ratio: 4 / 3;
   place-items: center;
   padding: 24px;
   color: var(--muted);
@@ -232,10 +235,6 @@ h2 {
     grid-template-columns: 1fr;
   }
 
-  .media-placeholder {
-    min-height: 270px;
-  }
-
   .control-bar {
     align-items: stretch;
     flex-direction: column;
@@ -249,6 +248,7 @@ h2 {
     flex: 1;
   }
 }
+
 #cameraPlaceholder {
   position: relative;
   overflow: hidden;
@@ -271,12 +271,15 @@ h2 {
 #cameraPlaceholder.camera-active .placeholder-message {
   display: none;
 }
+
 #currentMemePlaceholder {
   position: relative;
   overflow: hidden;
 }
 
 .current-meme-image {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   object-fit: contain;
@@ -296,6 +299,7 @@ h2 {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  z-index: 2;
 }
 
 .meme-tile {

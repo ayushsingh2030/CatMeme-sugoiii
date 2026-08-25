@@ -13,6 +13,7 @@ import {
   saveCalibrationRecord,
   loadAllCalibrationRecords,
 } from "./storage.js";
+import { findBestMatch } from "./matching.js";
 
 const webcam = document.querySelector("#webcam");
 const landmarkCanvas = document.querySelector("#landmarkCanvas");
@@ -51,6 +52,16 @@ const POSE_CONNECTIONS = [
   [23, 24], // hips
 ];
 
+// Minimum overall similarity score (0-1) before an auto-match is trusted
+// enough to swap the displayed meme. Tune this later once real usage
+// data shows whether matches feel too eager or too shy.
+const MATCH_CONFIDENCE_THRESHOLD = 0.55;
+
+// Brief grace period after a manual tile click before auto-matching is
+// allowed to take the display back over, so browsing the library doesn't
+// get immediately overridden.
+const MANUAL_SELECT_GRACE_MS = 1000;
+
 const uploadedMemes = [];
 
 // Calibration profiles are kept here in memory for fast access during
@@ -74,6 +85,8 @@ let latestFaceLandmarks = [];
 let latestFeatures = null;
 let lastFeatureLogTime = 0;
 let isCalibrating = false;
+let currentAutoMatchId = null;
+let lastManualSelectTime = 0;
 
 async function getVisionFileset() {
   if (!visionFileset) {
@@ -232,6 +245,7 @@ function stopCamera() {
   latestHandLandmarks = [];
   latestFaceLandmarks = [];
   latestFeatures = null;
+  currentAutoMatchId = null;
 
   landmarkContext.clearRect(
     0,
@@ -247,6 +261,44 @@ function stopCamera() {
   trackerStatus.style.color = "";
   startCameraButton.disabled = false;
   stopCameraButton.disabled = true;
+}
+
+function runAutoMatch(timestamp) {
+  const hasProfiles = Object.keys(calibratedProfiles).length > 0;
+  const withinManualGrace =
+    timestamp - lastManualSelectTime < MANUAL_SELECT_GRACE_MS;
+
+  if (isCalibrating || !hasProfiles || withinManualGrace || !latestFeatures) {
+    return;
+  }
+
+  const bestMatch = findBestMatch(latestFeatures, calibratedProfiles);
+  if (!bestMatch) {
+    return;
+  }
+
+  const scorePercent = Math.round(bestMatch.overallScore * 100);
+  const matchedMeme = uploadedMemes.find((m) => m.id === bestMatch.memeId);
+  if (!matchedMeme) {
+    return;
+  }
+
+  if (bestMatch.overallScore >= MATCH_CONFIDENCE_THRESHOLD) {
+    if (currentAutoMatchId !== matchedMeme.id) {
+      displayMeme(matchedMeme, {
+        label: "Live match",
+        confidenceText: `Confidence: ${scorePercent}%`,
+      });
+      currentAutoMatchId = matchedMeme.id;
+    } else {
+      confidence.textContent = `Confidence: ${scorePercent}%`;
+    }
+  } else if (currentAutoMatchId !== null) {
+    matchLabel.textContent = "Live match";
+    currentMatch.textContent = "Uncertain";
+    confidence.textContent = `Confidence: ${scorePercent}% (below threshold)`;
+    currentAutoMatchId = null;
+  }
 }
 
 function startLandmarkLoop() {
@@ -290,6 +342,7 @@ function startLandmarkLoop() {
       console.log("Live feature profile:", latestFeatures);
     }
 
+    runAutoMatch(timestamp);
     drawLandmarks(latestHandLandmarks, latestFaceLandmarks);
   }
 
@@ -420,7 +473,10 @@ function memeNameFromFile(file) {
   return file.name.replace(/\.[^/.]+$/, "");
 }
 
-function selectMeme(meme) {
+// Renders `meme` as the current large meme image. `label` and
+// `confidenceText` let callers override the status text (manual pick vs.
+// live auto-match); otherwise sensible defaults are used.
+function displayMeme(meme, { label, confidenceText, isManual = false } = {}) {
   selectedMeme = meme;
 
   const image = document.createElement("img");
@@ -433,9 +489,9 @@ function selectMeme(meme) {
   caption.textContent = meme.name;
 
   currentMemePlaceholder.replaceChildren(image, caption);
-  matchLabel.textContent = "Selected manually";
+  matchLabel.textContent = label ?? (isManual ? "Selected manually" : "Live match");
   currentMatch.textContent = meme.name;
-  confidence.textContent = "Confidence: ready for matching";
+  confidence.textContent = confidenceText ?? "Confidence: ready for matching";
 
   document.querySelectorAll(".meme-tile").forEach((tile) => {
     tile.classList.toggle("selected", tile.dataset.memeId === meme.id);
@@ -471,7 +527,7 @@ async function calibrateMeme(meme) {
   }
 
   isCalibrating = true;
-  selectMeme(meme);
+  displayMeme(meme, { isManual: true });
   calibrationOverlay.classList.add("visible");
 
   const sessionProfile = await runCalibrationTake({
@@ -521,7 +577,11 @@ function renderMemeTile(meme) {
   label.textContent = meme.name;
 
   selectButton.append(image, label);
-  selectButton.addEventListener("click", () => selectMeme(meme));
+  selectButton.addEventListener("click", () => {
+    displayMeme(meme, { isManual: true });
+    lastManualSelectTime = performance.now();
+    currentAutoMatchId = null;
+  });
 
   const calibrateButton = document.createElement("button");
   calibrateButton.type = "button";
@@ -561,7 +621,7 @@ async function loadPersistedData() {
     if (uploadedMemes.length > 0) {
       memeStrip.querySelector(".empty-library")?.remove();
       memeCount.textContent = `${uploadedMemes.length} uploaded`;
-      selectMeme(uploadedMemes[0]);
+      displayMeme(uploadedMemes[0], { isManual: true });
     }
 
     const calibrationRecords = await loadAllCalibrationRecords();
@@ -607,7 +667,7 @@ memeUpload.addEventListener("change", (event) => {
   memeCount.textContent = `${uploadedMemes.length} uploaded`;
 
   if (!selectedMeme) {
-    selectMeme(uploadedMemes[0]);
+    displayMeme(uploadedMemes[0], { isManual: true });
   }
 
   memeUpload.value = "";
