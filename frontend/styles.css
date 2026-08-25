@@ -1,6 +1,5 @@
 :root {
   color-scheme: dark;
-
   --background: #0b1020;
   --surface: rgba(21, 29, 52, 0.84);
   --surface-light: rgba(34, 45, 77, 0.9);
@@ -12,6 +11,7 @@
   --blue: #57c7ff;
   --danger: #ff6b6b;
   --success: #6ee7a0;
+  --warning: #ffb84c;
 }
 
 * {
@@ -105,6 +105,7 @@ h2 {
   display: grid;
   grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
   gap: 20px;
+  align-items: start;
 }
 
 .panel {
@@ -275,6 +276,11 @@ h2 {
 #currentMemePlaceholder {
   position: relative;
   overflow: hidden;
+  transition: filter 300ms ease, opacity 300ms ease;
+}
+
+#currentMemePlaceholder.uncertain {
+  filter: grayscale(0.7) brightness(0.6);
 }
 
 .current-meme-image {
@@ -406,4 +412,12 @@ h2 {
 
 .calibration-overlay.visible {
   display: flex;
+}
+
+#matchLabel.detecting {
+  color: var(--warning);
+}
+
+#matchLabel.uncertain {
+  color: var(--muted);
 }

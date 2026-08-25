@@ -3,6 +3,11 @@
 // frame-to-frame noise. A candidate must win a consistent streak of
 // consecutive frames before the display actually switches, and the
 // currently displayed meme is retained otherwise (hysteresis).
+//
+// Also exposes streak progress (candidateId / candidateStreak /
+// dwellFramesRequired) so the UI can show a "Detecting..." state while a
+// candidate is building up its streak, rather than jumping straight from
+// nothing to a confirmed match with no in-between feedback.
 
 export function createMatchSmoother({ dwellFramesRequired = 8 } = {}) {
   let currentDisplayedId = null;
@@ -15,7 +20,13 @@ export function createMatchSmoother({ dwellFramesRequired = 8 } = {}) {
     if (!candidate) {
       candidateId = null;
       candidateStreak = 0;
-      return { shouldSwitch: false, displayedId: currentDisplayedId };
+      return {
+        shouldSwitch: false,
+        displayedId: currentDisplayedId,
+        candidateId: null,
+        candidateStreak: 0,
+        dwellFramesRequired,
+      };
     }
 
     if (candidate.memeId === candidateId) {
@@ -32,7 +43,13 @@ export function createMatchSmoother({ dwellFramesRequired = 8 } = {}) {
       currentDisplayedId = candidateId;
     }
 
-    return { shouldSwitch, displayedId: currentDisplayedId };
+    return {
+      shouldSwitch,
+      displayedId: currentDisplayedId,
+      candidateId,
+      candidateStreak,
+      dwellFramesRequired,
+    };
   }
 
   function reset() {

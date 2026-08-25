@@ -2,8 +2,18 @@
 // Compares a live feature profile against every calibrated meme profile
 // and returns the best match, using the weighted category scoring scheme
 // described in the project blueprint (face / hands / pose / spatial).
-
-const CATEGORY_WEIGHTS = {
+//
+// --- Tuning weights ---
+// These are the starting values from the project doc. If matching feels
+// wrong in a specific way, adjust here based on what you see in the
+// console debug log (script.js logs the category breakdown for whatever
+// is currently winning, throttled to ~1x/sec):
+//   - Memes defined mostly by hand gestures losing to others? Raise `hands`.
+//   - Facial expression memes not getting picked up? Raise `face`.
+//   - Body/arm-position memes unreliable? Raise `pose`.
+//   - Weights must not need to sum to 1 — they're normalised automatically
+//     using only the categories that had data for a given comparison.
+export const CATEGORY_WEIGHTS = {
   face: 0.25,
   hands: 0.3,
   pose: 0.3,
@@ -118,7 +128,7 @@ function compareSpatial(live, profile) {
 
 // Scores one live feature snapshot against one calibrated profile.
 // Returns an overall 0-1 score plus the per-category breakdown (handy for
-// debugging in the console).
+// debugging / tuning weights in the console).
 export function scoreAgainstProfile(liveFeatures, profile) {
   const categoryScores = {
     face: compareFace(liveFeatures.face, profile.face),
