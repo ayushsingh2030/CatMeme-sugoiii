@@ -6,7 +6,13 @@ import {
 } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/vision_bundle.mjs";
 
 import { extractFeatures } from "./features.js";
-import { runCalibrationTake, averageValue } from "./calibration.js";
+import { runCalibrationTake } from "./calibration.js";
+import {
+  saveMemeRecord,
+  loadAllMemeRecords,
+  saveCalibrationRecord,
+  loadAllCalibrationRecords,
+} from "./storage.js";
 
 const webcam = document.querySelector("#webcam");
 const landmarkCanvas = document.querySelector("#landmarkCanvas");
@@ -47,11 +53,11 @@ const POSE_CONNECTIONS = [
 
 const uploadedMemes = [];
 
-// Calibration profiles live in memory only for now. Uploaded memes
-// themselves don't survive a page refresh yet either (Phase C roadmap
-// item 5 covers persisting both together later), so there's nothing to
-// gain from writing to localStorage until meme storage is also durable.
-const calibratedProfiles = {}; // { [memeId]: { sessions: [...], profile: {...} } }
+// Calibration profiles are kept here in memory for fast access during
+// matching, but every write is mirrored into IndexedDB (see storage.js)
+// so memes and their calibration survive refresh, close, and reopen.
+// Recalibrating a meme REPLACES its saved profile entirely.
+const calibratedProfiles = {}; // { [memeId]: profile }
 
 let mediaStream = null;
 let visionFileset = null;
@@ -441,11 +447,16 @@ function updateTileCalibrationBadge(meme) {
   if (!tile) return;
 
   const badge = tile.querySelector(".calibration-badge");
-  const takeCount = calibratedProfiles[meme.id]?.sessions.length ?? 0;
+  const calibrateButton = tile.querySelector(".calibrate-button");
+  const hasProfile = Boolean(calibratedProfiles[meme.id]);
 
   if (badge) {
-    badge.textContent = takeCount > 0 ? `Calibrated ×${takeCount}` : "Not calibrated";
-    badge.classList.toggle("calibrated", takeCount > 0);
+    badge.textContent = hasProfile ? "Calibrated" : "Not calibrated";
+    badge.classList.toggle("calibrated", hasProfile);
+  }
+
+  if (calibrateButton) {
+    calibrateButton.textContent = hasProfile ? "Recalibrate" : "Calibrate";
   }
 }
 
@@ -476,19 +487,17 @@ async function calibrateMeme(meme) {
     },
   });
 
-  if (!calibratedProfiles[meme.id]) {
-    calibratedProfiles[meme.id] = { sessions: [], profile: null };
+  // Recalibrating replaces the previous profile entirely — no blending
+  // with older takes.
+  calibratedProfiles[meme.id] = sessionProfile;
+
+  try {
+    await saveCalibrationRecord(meme.id, sessionProfile);
+  } catch (error) {
+    console.error("Failed to save calibration to IndexedDB:", error);
   }
 
-  calibratedProfiles[meme.id].sessions.push(sessionProfile);
-  calibratedProfiles[meme.id].profile = averageValue(
-    calibratedProfiles[meme.id].sessions
-  );
-
-  console.log(
-    `Calibration saved for "${meme.name}" (${calibratedProfiles[meme.id].sessions.length} take(s)):`,
-    calibratedProfiles[meme.id].profile
-  );
+  console.log(`Calibration saved for "${meme.name}":`, sessionProfile);
 
   updateTileCalibrationBadge(meme);
   isCalibrating = false;
@@ -530,6 +539,41 @@ function renderMemeTile(meme) {
   document.querySelectorAll(".meme-tile").forEach((t) => {
     t.classList.toggle("selected", t.dataset.memeId === selectedMeme?.id);
   });
+
+  updateTileCalibrationBadge(meme);
+}
+
+async function loadPersistedData() {
+  try {
+    const memeRecords = await loadAllMemeRecords();
+
+    memeRecords.forEach((record) => {
+      const meme = {
+        id: record.id,
+        name: record.name,
+        url: URL.createObjectURL(record.blob),
+      };
+
+      uploadedMemes.push(meme);
+      renderMemeTile(meme);
+    });
+
+    if (uploadedMemes.length > 0) {
+      memeStrip.querySelector(".empty-library")?.remove();
+      memeCount.textContent = `${uploadedMemes.length} uploaded`;
+      selectMeme(uploadedMemes[0]);
+    }
+
+    const calibrationRecords = await loadAllCalibrationRecords();
+
+    calibrationRecords.forEach((record) => {
+      calibratedProfiles[record.memeId] = record.profile;
+    });
+
+    uploadedMemes.forEach((meme) => updateTileCalibrationBadge(meme));
+  } catch (error) {
+    console.error("Failed to load saved memes/calibrations from IndexedDB:", error);
+  }
 }
 
 memeUpload.addEventListener("change", (event) => {
@@ -554,6 +598,10 @@ memeUpload.addEventListener("change", (event) => {
 
     uploadedMemes.push(meme);
     renderMemeTile(meme);
+
+    saveMemeRecord(meme, file).catch((error) => {
+      console.error("Failed to save meme to IndexedDB:", error);
+    });
   });
 
   memeCount.textContent = `${uploadedMemes.length} uploaded`;
@@ -568,3 +616,5 @@ memeUpload.addEventListener("change", (event) => {
 startCameraButton.addEventListener("click", startCamera);
 stopCameraButton.addEventListener("click", stopCamera);
 window.addEventListener("beforeunload", stopCamera);
+
+loadPersistedData();
